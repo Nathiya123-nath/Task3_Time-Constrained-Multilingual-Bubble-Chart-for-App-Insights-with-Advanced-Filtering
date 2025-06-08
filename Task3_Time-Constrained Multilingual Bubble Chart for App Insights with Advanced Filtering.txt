@@ -1,0 +1,110 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime, time
+import pytz
+
+# Load your dataset - change path as needed
+df = pd.read_csv('D:/Project/googleplaystore.csv')
+
+# Clean 'Installs' column:
+df['Installs_clean'] = df['Installs'].str.replace('[+,]', '', regex=True)  # remove '+' and ','
+df['Installs_clean'] = pd.to_numeric(df['Installs_clean'], errors='coerce')  # convert to numeric, invalid to NaN
+df = df.dropna(subset=['Installs_clean'])  # drop rows with NaN installs
+df['Installs_clean'] = df['Installs_clean'].astype(int)  # convert to int
+
+# Lowercase categories for filtering
+df['Category_lower'] = df['Category'].str.lower()
+
+allowed_cats = ['game', 'beauty', 'business', 'commics', 'commication',
+                'dating', 'entertainment', 'social', 'event']
+
+# Filter dataframe based on your conditions
+filtered_df = df[
+    (df['Rating'] > 3.5) &
+    (df['Category_lower'].isin(allowed_cats)) &
+    (pd.to_numeric(df['Reviews'], errors='coerce') > 500) &  # convert Reviews to numeric before filter
+    (~df['App'].str.contains('s', case=False)) &
+    (df['Installs_clean'] > 50000)
+].copy()
+
+print(f"Filtered data rows: {len(filtered_df)}")  # confirm filtered row count
+
+# Translate categories for display
+def translate_category(cat):
+    translations = {
+        'beauty': 'सुंदरता',           # Hindi
+        'business': 'வணிகம்',          # Tamil
+        'dating': 'Verabredung',        # German for Dating
+    }
+    return translations.get(cat, cat)
+
+filtered_df['Category_display'] = filtered_df['Category_lower'].apply(translate_category)
+
+# Convert Size to numeric MB for plotting
+def size_to_mb(size):
+    if isinstance(size, str):
+        size = size.strip().upper()
+        if size.endswith('M'):
+            try:
+                return float(size[:-1])
+            except:
+                return None
+        elif size.endswith('K'):
+            try:
+                return float(size[:-1]) / 1024
+            except:
+                return None
+        elif size == 'VARIES WITH DEVICE':
+            return None
+    try:
+        return float(size)
+    except:
+        return None
+
+filtered_df['Size_MB'] = filtered_df['Size'].apply(size_to_mb)
+filtered_df = filtered_df.dropna(subset=['Size_MB'])
+
+# Check current time in IST
+ist = pytz.timezone('Asia/Kolkata')
+now_ist = datetime.now(ist).time()
+
+# Plot only between 5 PM and 7 PM IST
+if time(17,0) <= now_ist <= time(19,0):
+    plt.figure(figsize=(12,8))
+    
+    # Plot all except 'game' in default color
+    others = filtered_df[filtered_df['Category_lower'] != 'game']
+    plt.scatter(
+        others['Size_MB'], others['Rating'],
+        s=others['Installs_clean'] / 10000,  # scale bubble size
+        alpha=0.6, label='Other Categories'
+    )
+    
+    # Plot 'game' category in pink
+    games = filtered_df[filtered_df['Category_lower'] == 'game']
+    plt.scatter(
+        games['Size_MB'], games['Rating'],
+        s=games['Installs_clean'] / 10000,
+        color='pink', alpha=0.7, label='Game Category'
+    )
+    
+    plt.xlabel('App Size (MB)')
+    plt.ylabel('Average Rating')
+    plt.title('App Size vs. Rating (Bubble size = Number of Installs)')
+    
+    # Legend
+    plt.legend()
+    
+    # Optional: annotate categories on points
+    for _, row in filtered_df.iterrows():
+        plt.text(row['Size_MB'], row['Rating'], row['Category_display'], fontsize=8, alpha=0.7)
+    
+    plt.grid(True)
+    
+    # Save plot to file
+    plt.savefig('app_size_vs_rating.png')
+    print("Plot saved as 'app_size_vs_rating.png'")
+    
+    plt.show()
+else:
+    print("This chart is only available between 5 PM IST and 7 PM IST.")
